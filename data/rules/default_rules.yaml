@@ -1,0 +1,121 @@
+rules:
+  - rule_id: R001
+    name: 忽略历史指令
+    description: 检测直接要求忽略系统或历史约束的注入文本。
+    pattern: "(忽略|无视).{0,12}(之前|以上|历史).{0,12}(指令|规则|要求)"
+    severity: high
+    enabled: true
+    weight: 0.85
+    category: direct_prompt_injection
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本尝试要求模型忽略既有规则，属于典型 prompt injection。"
+  - rule_id: R002
+    name: 系统提示词套取
+    description: 检测索取系统提示词、开发者消息和安全策略的请求。
+    pattern: "(系统提示词|system prompt|开发者消息|隐藏提示|内部策略|安全策略)"
+    severity: critical
+    enabled: true
+    weight: 0.95
+    category: sensitive_info_exfiltration
+    targets: ["user_input", "model_output"]
+    explanation: "请求或输出中出现系统提示词与内部策略信息，存在敏感信息外泄风险。"
+  - rule_id: R003
+    name: 角色覆盖
+    description: 检测要求模型扮演管理员、root、审计员等高权限角色的文本。
+    pattern: "(从现在开始|立即).{0,12}(扮演|充当|切换为).{0,12}(管理员|root|开发者|系统|审计员)"
+    severity: high
+    enabled: true
+    weight: 0.78
+    category: role_override
+    targets: ["user_input", "retrieved_context"]
+    explanation: "请求试图覆盖模型原始角色与边界。"
+  - rule_id: R004
+    name: 越狱模板
+    description: 检测 DAN、无限制模式和无审查模式等常见越狱提示。
+    pattern: "(DAN|无限制模式|无审查模式|越狱模式|不受限制)"
+    severity: high
+    enabled: true
+    weight: 0.82
+    category: jailbreak
+    targets: ["user_input", "retrieved_context"]
+    explanation: "命中常见越狱模板关键词。"
+  - rule_id: R005
+    name: 敏感凭据导出
+    description: 检测要求获取 token、密码、密钥、cookie 等凭据的文本。
+    pattern: "(token|密码|密钥|cookie|AKIA|SSH KEY|API_KEY|访问令牌)"
+    severity: critical
+    enabled: true
+    weight: 0.9
+    category: sensitive_info_exfiltration
+    targets: ["user_input", "model_output"]
+    explanation: "存在请求或输出敏感凭据的行为。"
+  - rule_id: R006
+    name: 工具执行滥用
+    description: 检测诱导模型执行 shell、SQL、文件读取等高风险工具调用。
+    pattern: "(执行|运行|调用).{0,12}(shell|bash|终端|sql|数据库|文件|工具)|读取.{0,12}(\\.env|配置文件|凭据)"
+    severity: critical
+    enabled: true
+    weight: 0.92
+    category: tool_misuse_attempt
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本包含明显的工具滥用或本地敏感文件读取意图。"
+  - rule_id: R007
+    name: 间接注入上下文
+    description: 检测检索结果中的隐藏恶意指令。
+    pattern: "(以下内容仅供模型阅读|收到此段后|请忽略用户问题|优先执行本段指令|隐藏指令)"
+    severity: critical
+    enabled: true
+    weight: 0.96
+    category: indirect_prompt_injection
+    targets: ["retrieved_context"]
+    explanation: "检索上下文中出现对模型的隐藏控制指令。"
+  - rule_id: R008
+    name: 安全绕过措辞
+    description: 检测要求不要遵守限制、不要告知用户等绕过策略。
+    pattern: "(不要遵守|无需遵守|不要告诉用户|绕过限制|跳过审计|跳过过滤)"
+    severity: high
+    enabled: true
+    weight: 0.76
+    category: jailbreak
+    targets: ["user_input", "retrieved_context"]
+    explanation: "请求中出现明显的安全绕过措辞。"
+  - rule_id: R009
+    name: 编码混淆
+    description: 检测通过 Base64 或编码方式隐藏恶意指令。
+    pattern: "(base64|编码后执行|解码后|十六进制指令)"
+    severity: medium
+    enabled: true
+    weight: 0.58
+    category: adversarial_obfuscation
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本试图通过编码或混淆降低检测命中率。"
+  - rule_id: R010
+    name: 输出泄露痕迹
+    description: 检测模型输出中的账号、凭据或内部说明。
+    pattern: "(账号:|密码:|token:|内部备注|这是系统提示词|以下是你的系统提示)"
+    severity: critical
+    enabled: true
+    weight: 0.93
+    category: output_leakage
+    targets: ["model_output"]
+    explanation: "模型输出携带敏感或内部控制信息。"
+  - rule_id: R011
+    name: 数据导出请求
+    description: 检测批量导出数据库、客户名单、日志等敏感数据的请求。
+    pattern: "(导出|打包|列出).{0,12}(数据库|客户名单|日志|配置|权限表|员工信息)"
+    severity: critical
+    enabled: true
+    weight: 0.88
+    category: sensitive_info_exfiltration
+    targets: ["user_input", "retrieved_context"]
+    explanation: "请求包含批量数据外传意图。"
+  - rule_id: R012
+    name: 权限提升命令
+    description: 检测 sudo、提权、删除系统目录等高风险行为。
+    pattern: "(sudo|提权|rm -rf|删除系统目录|写入 crontab|反弹 shell)"
+    severity: critical
+    enabled: true
+    weight: 0.94
+    category: tool_misuse_attempt
+    targets: ["user_input", "retrieved_context", "model_output"]
+    explanation: "文本包含明显的权限提升或破坏性操作指令。"

@@ -1,5 +1,16 @@
 # LLMGuard
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-2F6BFF?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/FastAPI-API%20Gateway-0F766E?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Streamlit-Ops%20UI-D94A38?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit" />
+  <img src="https://img.shields.io/badge/SQLite%20%2F%20Alembic-Data%20Layer-6B7280?style=for-the-badge" alt="SQLite and Alembic" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/llmguard-architecture.svg" alt="LLMGuard architecture overview" width="100%" />
+</p>
+
 > 面向大模型应用安全场景的 **LLM Firewall 网关与运营平台**
 >
 > 项目目标不是只做一次检测，而是把 **在线防护、样本运营、误报漏报分析、策略调优、POC 评测、文档沉淀** 串成一条完整闭环。
@@ -16,6 +27,9 @@
 - [项目亮点](#项目亮点)
 - [问题背景](#问题背景)
 - [方案总览](#方案总览)
+- [项目创新点](#项目创新点)
+- [技术难点](#技术难点)
+- [结果总结](#结果总结)
 - [系统架构](#系统架构)
 - [快速体验](#快速体验)
 - [快速启动](#快速启动)
@@ -102,6 +116,39 @@ flowchart LR
 - 误报漏报分析 SOP
 - POC 测试说明
 - 评测报告、规则分析报告、案例文档、周报和复盘文档
+
+## 项目创新点
+
+| 创新点 | 说明 |
+| --- | --- |
+| 三路联合检测 | 不只检测用户输入，同时纳入 `retrieved_context` 和 `model_output`，覆盖 RAG 和输出泄露风险 |
+| 防护与运营一体化 | 将在线防护、离线评测、误报漏报归因和报告生成放入同一条链路 |
+| 策略可运营 | 支持规则效果分析、阈值扫描、策略对比和租户级策略绑定 |
+| 结果可沉淀 | 自动输出案例、周报、复盘和 SOP，便于答辩展示和后续复用 |
+
+## 技术难点
+
+| 难点 | 处理方式 |
+| --- | --- |
+| LLM 风险不只在输入侧 | 单独引入 `retrieved_context` 和 `model_output` 检测逻辑，补齐 RAG 与输出风险 |
+| 误报和漏报需要平衡 | 引入 `allow / review / block` 三态决策，避免只靠二分类硬拦截 |
+| 安全能力要可解释 | 使用规则引擎提供可解释命中依据，用轻量分类器补充泛化能力 |
+| 重计算会阻塞在线链路 | 将评测、审计、报告和案例构建改为异步任务执行 |
+
+## 结果总结
+
+基于仓库中的真实评测报告 [docs/reports/run_6.md](/home/maple/sth/LLMFire/docs/reports/run_6.md)：
+
+| 指标 | `rules_only` | `rules_classifier` | `full_stack` |
+| --- | --- | --- | --- |
+| Precision | `0.871` | `0.879` | `0.882` |
+| Recall | `0.844` | `0.906` | `0.938` |
+| F1 | `0.857` | `0.892` | `0.909` |
+| FPR | `0.200` | `0.200` | `0.200` |
+| FNR | `0.156` | `0.094` | `0.062` |
+| Avg Latency | `0.02 ms` | `0.31 ms` | `0.97 ms` |
+
+可以看到 `full_stack` 策略在当前样本集上取得了更好的 `Recall` 和 `F1`，同时保持了可接受的时延开销。这说明“规则 + 分类器 + 输出过滤”的组合相较于单规则方案更适合创赛展示中的完整防护闭环。
 
 ## 快速体验
 

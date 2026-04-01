@@ -214,7 +214,7 @@ flowchart LR
 - [docs/POC测试说明.md](/home/maple/sth/LLMFire/docs/POC测试说明.md)：POC 与测试说明
 - [docs/样本标注规范.md](/home/maple/sth/LLMFire/docs/样本标注规范.md)：样本标注规则
 - [docs/误报漏报分析SOP.md](/home/maple/sth/LLMFire/docs/误报漏报分析SOP.md)：误报漏报分析方法
-- [docs/项目讲解稿.md](/home/maple/sth/LLMFire/docs/项目讲解稿.md)：答辩 / 面试讲解参考
+- [docs/项目讲解稿.md](/home/maple/sth/LLMFire/docs/项目讲解稿.md)：创赛答辩讲解参考
 
 ---
 
@@ -692,7 +692,7 @@ TASK_QUEUE_BACKEND=arq .venv/bin/python scripts/run_worker.py
 ## 设计取舍
 
 - 分类器选择 `TF-IDF + LogisticRegression`
-  - 原因是依赖轻、训练快、解释性相对更好，适合本科实习面试展示
+  - 原因是依赖轻、训练快、解释性相对更好，适合创赛路演和现场答辩展示
 - 数据库采用 `SQLite + SQLAlchemy`
   - 原因是本地可直接启动，同时保留迁移到 PostgreSQL 的结构空间
 - 前端采用 `Streamlit`
@@ -702,7 +702,7 @@ TASK_QUEUE_BACKEND=arq .venv/bin/python scripts/run_worker.py
 - 数据库默认仍保留 SQLite 兼容
   - 原因是仓库测试和单机演示仍需要零依赖启动；生产部署建议改用 PostgreSQL，并通过 `.env` 或密钥管理注入 DSN
 - 周报、复盘、案例文档落在文件系统而不是单独建表
-  - 原因是这类材料天然适合 Markdown 归档、Git 追踪和面试展示，检索入口则通过前端与目录索引补足
+  - 原因是这类材料天然适合 Markdown 归档、Git 追踪和答辩展示，检索入口则通过前端与目录索引补足
 - 输出侧过滤单独作为第三组策略
   - 目的是清楚展示“输入侧检测”和“输出侧检测”在评测效果上的差异
 - 评测仍然是同步 HTTP 触发

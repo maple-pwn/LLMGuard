@@ -1,54 +1,64 @@
 # LLM Firewall 网关与运营平台
 
-一个面向大模型应用安全运营场景的完整项目，当前已经从“演示型评测台”推进到“在线防护网关 + 异步运营平台雏形”。项目覆盖实时扫描网关、样本库、异步评测作业、规则运营分析、案例沉淀、人工复核任务和 RAG 间接注入防护。
+面向大模型应用安全运营场景的 LLM Firewall 项目，覆盖在线检测网关、样本库、批量评测、误报漏报归因、规则运营分析、案例沉淀、异步任务执行和管理面能力。项目定位不是“单点检测 demo”，而是“可持续调优的安全运营平台雏形”。
 
-## 当前架构定位
+## 项目概览
 
-- `gateway`：实时接入层，提供低延迟 `/gateway/scan`，负责规则匹配、轻量分类、策略决策、审计事件落库。
-- `ops`：离线运营层，`evaluate`、样本审计、规则分析、案例构建、周报和复盘都改成任务提交，API 返回 `job_id`，由 worker 异步执行。
-- `admin`：样本、规则、租户、应用、策略绑定等配置管理。
+- `gateway`：实时扫描入口，处理规则匹配、分类器打分、策略决策、审计落库和高危告警。
+- `ops`：离线运营入口，负责评测、样本审计、规则分析、周报、复盘和案例构建。
+- `admin`：租户、应用、策略绑定、规则、样本和权限相关配置管理。
 
-这意味着在线请求和重计算任务已经开始解耦，当前版本已经支持 `database` 与 `Redis + Arq` 两种队列后端，并且已经补上 JWT 登录、RBAC 与租户级管理面隔离，后续可以继续往告警联动和对象存储产物演进。
+当前版本已经具备以下基础：
 
-## 这个项目解决什么问题
+- 规则引擎、轻量分类器、输出侧过滤联合判定。
+- 多租户策略绑定，按 `tenant + application + environment + scenario` 解析策略。
+- 异步任务执行，支持 `database` 与 `Redis + Arq` 两种队列后端。
+- JWT 登录、RBAC、租户级数据隔离和审计日志。
+- 样本库、规则分析、策略对比、案例文档、周报和复盘输出。
 
-大模型应用在办公助手、知识库问答、代码助手等场景中会暴露新的安全风险，例如：
+## 解决的问题
 
-- `prompt injection` 诱导模型忽略原始约束
-- `jailbreak` 通过模板绕过安全策略
-- `sensitive_info_exfiltration` 套取系统提示词、token、数据库信息
-- `role_override` 强制模型切换高权限角色
-- `tool_misuse_attempt` 诱导执行 shell / SQL / 文件读取
-- `indirect_prompt_injection` 通过 RAG 检索内容隐藏恶意指令
+大模型应用在办公助手、知识库问答、代码助手和 Agent 场景中，会暴露一类传统 WAF 难以直接处理的风险，例如：
 
-这个系统的目标不是只做一次拦截，而是形成一条可持续优化的运营链路：
+- `prompt injection`
+- `jailbreak`
+- `sensitive_info_exfiltration`
+- `role_override`
+- `tool_misuse_attempt`
+- `indirect_prompt_injection`
+- `output_leakage`
 
-`样本导入 -> 检测 -> 结果入库 -> 批量评测 -> 阈值扫描 -> 误报漏报归因 -> Markdown 报告`
+这个项目的目标不是只做一次拦截，而是形成一条可持续优化的安全运营链路：
 
-## 为什么贴合 LLM Firewall 运营策略岗位
+`样本导入 -> 检测 -> 结果入库 -> 批量评测 -> 阈值扫描 -> 误报漏报归因 -> 报告与案例沉淀`
 
-- 有检测能力：提供 `/scan` 网关，支持规则、分类器、输出侧过滤联合判定。
-- 有样本运营能力：支持攻击样本、对抗样本、白样本和 RAG 样本沉淀。
-- 有评测能力：支持三组策略对比、阈值扫描和混淆矩阵输出。
-- 有复盘能力：自动归因误报与漏报，生成面试可展示的专业报告。
-- 有工程落地能力：FastAPI + Streamlit + SQLite，本地可直接启动和演示。
+## 演进路径
 
-## 进度
+| 版本阶段 | 重点能力 |
+| --- | --- |
+| `0.1` 初始检测基线 | FastAPI 扫描接口、规则引擎、分类器、样本导入、评测与报告 |
+| `0.2` 运营增强 | 样本审计、规则分析、案例中心、策略对比、周报与复盘 |
+| `0.3` 平台基础设施 | `gateway / ops / admin` 分层、任务队列、Alembic、审计与告警 |
+| `0.4` 身份与租户隔离 | JWT、RBAC、成员关系、租户可见性和策略绑定 |
 
-| 阶段 | 状态 | 说明 |
-| --- | --- | --- |
-| 1. 工程初始化 | 完成 | 建立目录结构、依赖、配置、数据库基座 |
-| 2. 数据模型与数据库初始化 | 完成 | 实现 `Sample` / `Rule` / `StrategyConfig` / `EvaluationRun` / `DetectionResult` |
-| 3. 规则引擎 | 完成 | YAML 配置化规则与热更新 |
-| 4. 检测网关 | 完成 | `/scan` 多阶段检测与策略决策 |
-| 5. 样本导入与查询 | 完成 | API、脚本与筛选能力 |
-| 6. 基线分类器 | 完成 | `TF-IDF + LogisticRegression` 训练、保存、推理 |
-| 7. 批量评测与阈值扫描 | 完成 | 三组策略、指标对比、典型案例 |
-| 8. 误报漏报归因 | 完成 | 自动归因与统计汇总 |
-| 9. 报告生成 | 完成 | `docs/reports/` Markdown 报告 |
-| 10. 文档与测试 | 完成 | README、docs 与 pytest |
-| 11. 第二轮增强 | 完成 | 样本审计、规则运营分析、案例中心、多策略对比、周报与复盘文档 |
-| 12. RBAC 与租户隔离 | 完成 | JWT 登录、用户/角色/权限/成员关系、管理面审计日志、按租户过滤 admin/ops 数据 |
+完整演进记录见 [CHANGELOG.md](/home/maple/sth/LLMFire/CHANGELOG.md)，后续小步迭代计划见 [docs/roadmap.md](/home/maple/sth/LLMFire/docs/roadmap.md)。
+
+## 核心能力
+
+- 在线防护：`/gateway/scan` 对 `user_input`、`retrieved_context`、`model_output` 做联合判定。
+- 安全运营：支持攻击样本、对抗样本、白样本和 RAG 样本的导入、标注、审计与复核。
+- 策略调优：支持规则效果分析、策略对比、阈值扫描和误报漏报归因。
+- 文档沉淀：自动生成评测报告、案例文档、周报和复盘文档。
+- 平台治理：支持 JWT 登录、RBAC、租户隔离、审计日志和高危告警。
+
+## 仓库导航
+
+- [README.md](/home/maple/sth/LLMFire/README.md)：项目总览与启动方式
+- [CHANGELOG.md](/home/maple/sth/LLMFire/CHANGELOG.md)：阶段演进记录
+- [docs/roadmap.md](/home/maple/sth/LLMFire/docs/roadmap.md)：后续真实迭代计划
+- [docs/POC测试说明.md](/home/maple/sth/LLMFire/docs/POC测试说明.md)：POC 与测试说明
+- [docs/样本标注规范.md](/home/maple/sth/LLMFire/docs/样本标注规范.md)：样本标注规则
+- [docs/误报漏报分析SOP.md](/home/maple/sth/LLMFire/docs/误报漏报分析SOP.md)：误报漏报分析方法
 
 ## 系统架构
 
@@ -72,45 +82,6 @@
 5. `/evaluate` 对样本库进行批量跑分，输出策略对比与阈值扫描结果。
 6. 误报漏报归因模块自动打标签。
 7. 报告生成模块输出 `docs/reports/run_{id}.md`。
-
-## 第二轮增强
-
-第二轮增强把原来的“检测 + 评测”项目继续往“安全运营数据分析平台”推进，新增重点包括：
-
-- 样本质量审计：补充重复样本、高相似样本、标签缺失、标签冲突、边界样本识别与复核队列。
-- 规则运营分析：支持规则版本字段、规则级命中统计、误报贡献、拦截贡献和典型命中案例。
-- 误报漏报案例中心：把评测结果沉淀为可查询、可展示、可写文档的案例库。
-- 多策略对比：支持多版本策略、多阈值配置、多维指标聚合。
-- 运营文档自动化：新增周报、复盘文档和案例分析文档生成。
-- 前端展示增强：新增项目概览、样本复核、规则运营分析、案例中心、策略对比、单样本分析、报告中心页面。
-
-## 第三阶段基础重构
-
-这一轮新增的是“生产基础设施雏形”，重点不是继续加报表，而是给未来上线铺底：
-
-- 路由拆分为 `gateway` / `ops` / `admin`
-- 新增 `Tenant`、`Application`、`PolicyBinding`
-- 新增 `TaskRun`、`ReviewTask`、`AuditLog`、`AlertEvent`
-- `/gateway/scan` 支持按 `tenant_slug + application_key + environment` 解析策略绑定
-- 重计算能力改成任务提交与 worker 执行
-- 任务后端支持 `database` 与 `Redis + Arq`
-- 任务状态补充 `attempts`、`max_retries`、`timeout_seconds`、`idempotency_key`、`execution_log`
-- 数据库层补了 PostgreSQL/Alembic 友好配置
-- Alembic 已补首个 baseline migration：[20260416_01_initial_platform_schema.py](/home/maple/sth/LLMFire/alembic/versions/20260416_01_initial_platform_schema.py)
-- 网关审计默认落摘要、哈希和结构化事件，不在审计日志里落原文
-
-## 第四阶段：身份、权限与租户隔离
-
-这一轮把“只有 API key 的单管理员系统”推进成“支持多人协作的运营平台”：
-
-- 新增 `User`、`Role`、`Permission`、`Membership`
-- 新增 `POST /auth/login` 与 `GET /auth/me`
-- 增加一次性 `POST /auth/bootstrap-admin`，只用于初始化首个超级管理员
-- `admin` / `ops` 接口改成 Bearer Token + RBAC
-- 管理面默认按租户过滤：
-  - 租户管理员与安全运营只能看自己租户的数据
-  - 超级管理员可见全局
-- 写操作会落审计日志，记录 `actor_user_id`、对象类型、对象 ID、租户和事件载荷摘要
 
 ## 目录结构
 

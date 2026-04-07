@@ -60,6 +60,10 @@ class ScanResponse(BaseModel):
     latency_ms: float
     classifier_score: float | None = None
     output_filter_score: float | None = None
+    direct_hints: list[str] = Field(default_factory=list)
+    context_hints: list[str] = Field(default_factory=list)
+    deambiguation_applied: bool = False
+    classifier_gate_signal: bool = False
 
 
 class SampleBase(BaseModel):
@@ -71,6 +75,12 @@ class SampleBase(BaseModel):
     attack_subtype: str | None = Field(default=None, max_length=64)
     risk_level: str | None = Field(default=None, max_length=32)
     source: str | None = Field(default=None, max_length=128)
+    language: str | None = Field(default=None, max_length=16)
+    source_dataset: str | None = Field(default=None, max_length=128)
+    source_split: str | None = Field(default=None, max_length=32)
+    original_label: str | None = Field(default=None, max_length=64)
+    mapping_rule: str | None = Field(default=None, max_length=64)
+    import_batch: str | None = Field(default=None, max_length=64)
     tags: list[str] = Field(default_factory=list, max_length=32)
     expected_result: str = Field(max_length=16)
     actual_result: str | None = Field(default=None, max_length=16)
@@ -108,6 +118,12 @@ class SampleUpdate(BaseModel):
     attack_subtype: str | None = Field(default=None, max_length=64)
     risk_level: str | None = Field(default=None, max_length=32)
     source: str | None = Field(default=None, max_length=128)
+    language: str | None = Field(default=None, max_length=16)
+    source_dataset: str | None = Field(default=None, max_length=128)
+    source_split: str | None = Field(default=None, max_length=32)
+    original_label: str | None = Field(default=None, max_length=64)
+    mapping_rule: str | None = Field(default=None, max_length=64)
+    import_batch: str | None = Field(default=None, max_length=64)
     tags: list[str] | None = Field(default=None, max_length=32)
     expected_result: str | None = Field(default=None, max_length=16)
     actual_result: str | None = Field(default=None, max_length=16)
@@ -144,6 +160,12 @@ class SampleRead(BaseModel):
     attack_subtype: str | None = None
     risk_level: str | None = None
     source: str | None = None
+    language: str | None = None
+    source_dataset: str | None = None
+    source_split: str | None = None
+    original_label: str | None = None
+    mapping_rule: str | None = None
+    import_batch: str | None = None
     tags: list[str] = Field(default_factory=list)
     expected_result: str
     actual_result: str | None = None

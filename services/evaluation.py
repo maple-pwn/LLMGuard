@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import replace
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -28,6 +29,12 @@ def _sample_to_dict(sample: Sample | dict[str, Any]) -> dict[str, Any]:
             "attack_subtype": sample.attack_subtype,
             "risk_level": sample.risk_level,
             "source": sample.source,
+            "language": sample.language,
+            "source_dataset": sample.source_dataset,
+            "source_split": sample.source_split,
+            "original_label": sample.original_label,
+            "mapping_rule": sample.mapping_rule,
+            "import_batch": sample.import_batch,
             "tags": sample.tags or [],
             "expected_result": sample.expected_result,
             "scenario": sample.scenario or "general_assistant",
@@ -93,6 +100,7 @@ def _dataset_distribution(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "risky": sum(1 for sample in samples if is_positive_sample(sample)),
         "benign": sum(1 for sample in samples if not is_positive_sample(sample)),
         "by_category": dict(Counter(sample.get("attack_category") or "benign" for sample in samples)),
+        "by_language": dict(Counter(sample.get("language") or "unknown" for sample in samples)),
     }
 
 
@@ -102,6 +110,171 @@ def _group_metrics(cases: list[dict[str, Any]], key: str) -> dict[str, Any]:
         group_key = str(case.get(key) or "unknown")
         groups.setdefault(group_key, []).append(case)
     return {group_key: _compute_metrics(group_cases) for group_key, group_cases in groups.items()}
+
+
+def _filter_cases(cases: list[dict[str, Any]], predicate) -> list[dict[str, Any]]:
+    return [case for case in cases if predicate(case)]
+
+
+def _language_focus_matrix(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    english_indirect_categories = {"indirect_prompt_injection", "indirect_injection", "rag_poisoning"}
+    english_direct_categories = {
+        "direct_prompt_injection",
+        "direct_injection",
+        "instruction_override",
+        "persona_replacement",
+        "system_extraction",
+        "many_shot",
+        "adversarial_obfuscation",
+        "encoding_obfuscation",
+        "token_smuggling",
+        "prompt_extraction",
+    }
+    slices = {
+        "English indirect injection": _filter_cases(
+            cases,
+            lambda case: (case.get("language") or "").lower().startswith("en")
+            and case.get("attack_category") in english_indirect_categories,
+        ),
+        "English direct injection": _filter_cases(
+            cases,
+            lambda case: (case.get("language") or "").lower().startswith("en")
+            and case.get("attack_category") in english_direct_categories,
+        ),
+        "Chinese jailbreak": _filter_cases(
+            cases,
+            lambda case: (case.get("language") or "").lower().startswith("zh") and case.get("attack_category") == "jailbreak",
+        ),
+        "Chinese benign overlap": _filter_cases(
+            cases,
+            lambda case: (case.get("language") or "").lower().startswith("zh")
+            and not is_positive_sample(case)
+            and any(
+                token in str(tag).lower()
+                for tag in (case.get("tags") or [])
+                for token in ["benign_overlap", "boundary_benign", "迷惑性白样本"]
+            ),
+        ),
+        "Chinese RAG off-topic benign": _filter_cases(
+            cases,
+            lambda case: (case.get("language") or "").lower().startswith("zh")
+            and not is_positive_sample(case)
+            and case.get("scenario") in {"knowledge_base_qa", "rag_qa"}
+            and any(
+                token in str(tag).lower()
+                for tag in (case.get("tags") or [])
+                for token in ["off_topic_benign", "rag_offtopic_benign", "跑题白样本"]
+            ),
+        ),
+    }
+    return {
+        label: {"count": len(group_cases), **_compute_metrics(group_cases)} if group_cases else {"count": 0}
+        for label, group_cases in slices.items()
+    }
+
+
+_PAYLOAD_REWRITE_PATTERN = re.compile(
+    r"\b(repeat after me|output only|respond with|reply with|print\b|say\b|return\b|"
+    r"pass ['\"][^'\"]+['\"] instead of|replace .{0,24} with .{0,24}|remove (?:any )?dots?|"
+    r"title only|no extras?|no quotes?|translate.+respond with|only_translate)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_OBFUSCATION_PATTERN = re.compile(
+    r"(\\x[0-9a-fA-F]{2}){2,}|\b(base64|rot13|hex|hexadecimal|ascii|decode ascii)\b|"
+    r"\[::\-1\]|<\|im_|<SPLIT>|i[\s_\-]+g[\s_\-]+n[\s_\-]+o[\s_\-]+r[\s_\-]+e",
+    re.IGNORECASE | re.DOTALL,
+)
+_PWNED_PATTERN = re.compile(
+    r"\bi\s*have\s*been\s*[a-z0-9_\-]*p\w{1,8}\b|\bpw\w{2,8}\b|\bpwned\b|\bponed\b|\bpowoned\b|\bdenwp\b",
+    re.IGNORECASE,
+)
+_SEPARATOR_SMUGGLING_PATTERN = re.compile(
+    r"(?:\\[^\s])(?:\s*\\[^\s]){4,}|<SPLIT>|<\|im_[^\n]{0,24}\|>|\[\[\[|\]\]\]|"
+    r"\b[a-z]+(?:-[a-z]+){2,}\b|\b[a-z]+(?:_[a-z]+){2,}\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_english_direct_case(case: dict[str, Any]) -> bool:
+    english_direct_categories = {
+        "direct_prompt_injection",
+        "direct_injection",
+        "instruction_override",
+        "persona_replacement",
+        "system_extraction",
+        "many_shot",
+        "adversarial_obfuscation",
+        "encoding_obfuscation",
+        "token_smuggling",
+        "prompt_extraction",
+    }
+    return (case.get("language") or "").lower().startswith("en") and case.get("attack_category") in english_direct_categories
+
+
+def _english_direct_subslice_matrix(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    english_direct_cases = [case for case in cases if _is_english_direct_case(case)]
+
+    def has_tag(case: dict[str, Any], token: str) -> bool:
+        return any(token in str(tag).lower() for tag in (case.get("tags") or []))
+
+    def case_text(case: dict[str, Any]) -> str:
+        return "\n".join(
+            str(part or "")
+            for part in [case.get("text"), case.get("retrieved_context"), case.get("model_output")]
+            if part
+        )
+
+    slices = {
+        "Payload rewrite": [
+            case
+            for case in english_direct_cases
+            if _PAYLOAD_REWRITE_PATTERN.search(case_text(case))
+            or has_tag(case, "output_control")
+            or has_tag(case, "conditional_payload")
+        ],
+        "Obfuscation": [
+            case
+            for case in english_direct_cases
+            if case.get("attack_category") in {"adversarial_obfuscation", "encoding_obfuscation", "token_smuggling"}
+            or _OBFUSCATION_PATTERN.search(case_text(case))
+            or has_tag(case, "obfuscation")
+        ],
+        "PWNED variants": [
+            case
+            for case in english_direct_cases
+            if _PWNED_PATTERN.search(case_text(case))
+        ],
+        "Backslash / separator smuggling": [
+            case
+            for case in english_direct_cases
+            if _SEPARATOR_SMUGGLING_PATTERN.search(case_text(case))
+            or has_tag(case, "token_smuggling")
+        ],
+    }
+    return {
+        label: {"count": len(group_cases), **_compute_metrics(group_cases)} if group_cases else {"count": 0}
+        for label, group_cases in slices.items()
+    }
+
+
+def _summarize_explainability(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    classifier_only_false_positives = [
+        case
+        for case in cases
+        if not is_positive_sample(case)
+        and case.get("decision") != "allow"
+        and not case.get("triggered_rules")
+        and (case.get("classifier_score") or 0.0) > 0
+    ]
+    hint_combo_counter = Counter(
+        " + ".join(case.get("direct_hints") or case.get("context_hints") or ["none"])
+        for case in classifier_only_false_positives
+    )
+    return {
+        "deambiguation_applied_count": sum(1 for case in cases if case.get("deambiguation_applied")),
+        "classifier_only_false_positive_count": len(classifier_only_false_positives),
+        "classifier_only_false_positive_hints": dict(hint_combo_counter.most_common(5)),
+    }
 
 
 def _threshold_scan(samples: list[dict[str, Any]], detector, strategy: StrategyProfile) -> dict[str, Any]:
@@ -240,6 +413,10 @@ def run_evaluation(
             strategy_metrics["attribution_summary"] = summarize_attributions(cases)
             strategy_metrics["by_attack_type"] = _group_metrics(cases, "attack_category")
             strategy_metrics["by_sample_type"] = _group_metrics(cases, "sample_type")
+            strategy_metrics["by_language"] = _group_metrics(cases, "language")
+            strategy_metrics["language_focus_matrix"] = _language_focus_matrix(cases)
+            strategy_metrics["english_direct_subslice_matrix"] = _english_direct_subslice_matrix(cases)
+            strategy_metrics["explainability_summary"] = _summarize_explainability(cases)
             strategy_metrics["config"] = {
                 "strategy_version": strategy.strategy_version,
                 "rule_selection": strategy.rule_selection,

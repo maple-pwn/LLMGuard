@@ -43,6 +43,12 @@ def apply_sqlite_migrations(target_engine: Engine | None = None) -> None:
         [
             ("tenant_id", "tenant_id INTEGER"),
             ("application_id", "application_id INTEGER"),
+            ("language", "language VARCHAR(16)"),
+            ("source_dataset", "source_dataset VARCHAR(128)"),
+            ("source_split", "source_split VARCHAR(32)"),
+            ("original_label", "original_label VARCHAR(64)"),
+            ("mapping_rule", "mapping_rule VARCHAR(64)"),
+            ("import_batch", "import_batch VARCHAR(64)"),
             ("label_confidence", "label_confidence FLOAT"),
             ("duplicate_group_id", "duplicate_group_id VARCHAR(64)"),
             ("boundary_sample_flag", "boundary_sample_flag BOOLEAN DEFAULT 0"),

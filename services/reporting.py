@@ -24,6 +24,7 @@ def generate_report(
 ) -> tuple[str, str]:
     settings = get_settings()
     report_path = settings.report_dir / f"run_{run_id}.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     comparison_rows = []
     for strategy_name, payload in metrics.items():
         comparison_rows.append(
@@ -40,6 +41,8 @@ def generate_report(
         )
 
     full_stack = metrics.get("full_stack") or next(iter(metrics.values()))
+    focus_strategy_name = "context_hardened_v3" if "context_hardened_v3" in metrics else ("full_stack" if "full_stack" in metrics else next(iter(metrics)))
+    focus_strategy = metrics[focus_strategy_name]
     attribution_rows = [
         [label, str(count)] for label, count in (full_stack.get("attribution_summary") or {}).items()
     ]
@@ -65,6 +68,58 @@ def generate_report(
             ]
         )
 
+    language_rows = []
+    for language, payload in (focus_strategy.get("by_language") or {}).items():
+        language_rows.append(
+            [
+                language,
+                f"{payload['precision']:.3f}",
+                f"{payload['recall']:.3f}",
+                f"{payload['f1']:.3f}",
+                str(sum(payload["confusion_matrix"].values())),
+            ]
+        )
+
+    focus_matrix_rows = []
+    for label, payload in (focus_strategy.get("language_focus_matrix") or {}).items():
+        if not payload or payload.get("count", 0) == 0:
+            focus_matrix_rows.append([label, "0", "-", "-", "-"])
+            continue
+        focus_matrix_rows.append(
+            [
+                label,
+                str(payload["count"]),
+                f"{payload['precision']:.3f}",
+                f"{payload['recall']:.3f}",
+                f"{payload['f1']:.3f}",
+            ]
+        )
+
+    english_direct_subslice_rows = []
+    for label, payload in (focus_strategy.get("english_direct_subslice_matrix") or {}).items():
+        if not payload or payload.get("count", 0) == 0:
+            english_direct_subslice_rows.append([label, "0", "-", "-", "-"])
+            continue
+        english_direct_subslice_rows.append(
+            [
+                label,
+                str(payload["count"]),
+                f"{payload['precision']:.3f}",
+                f"{payload['recall']:.3f}",
+                f"{payload['f1']:.3f}",
+            ]
+        )
+
+    explainability_summary = focus_strategy.get("explainability_summary") or {}
+    explainability_rows = [
+        ["办公编辑去歧义触发数", str(explainability_summary.get("deambiguation_applied_count", 0))],
+        ["classifier-only 误报数", str(explainability_summary.get("classifier_only_false_positive_count", 0))],
+    ]
+    classifier_only_hint_rows = [
+        [hint_combo, str(count)]
+        for hint_combo, count in (explainability_summary.get("classifier_only_false_positive_hints") or {}).items()
+    ]
+
     content = f"""# 评测报告 - {run_name}
 
 ## 项目背景
@@ -81,11 +136,31 @@ def generate_report(
 
 ## 样本分布
 
-{_markdown_table(["维度", "值"], [[key, str(value)] for key, value in sample_distribution.items() if key != "by_category"])}
+{_markdown_table(["维度", "值"], [[key, str(value)] for key, value in sample_distribution.items() if key not in {"by_category", "by_language"}])}
+
+### 语言分布
+
+{_markdown_table(["语言", "样本数"], [[key, str(value)] for key, value in sample_distribution.get("by_language", {}).items()])}
 
 ## 各策略结果对比
 
 {_markdown_table(["策略", "Precision", "Recall", "F1", "FPR", "FNR", "人工复核率", "平均时延(ms)"], comparison_rows)}
+
+## 中英分开评测
+
+当前聚焦策略：`{focus_strategy_name}`
+
+### 按语言聚合
+
+{_markdown_table(["语言", "Precision", "Recall", "F1", "样本数"], language_rows)}
+
+### 重点语言场景矩阵
+
+{_markdown_table(["切片", "样本数", "Precision", "Recall", "F1"], focus_matrix_rows)}
+
+### 英文直攻专项矩阵
+
+{_markdown_table(["专项", "样本数", "Precision", "Recall", "F1"], english_direct_subslice_rows)}
 
 ## 阈值扫描
 
@@ -102,6 +177,14 @@ def generate_report(
 ## 误报漏报归因
 
 {_markdown_table(["归因标签", "数量"], attribution_rows)}
+
+## 可解释性摘要
+
+{_markdown_table(["指标", "值"], explainability_rows)}
+
+### classifier-only 误报 Hint 组合
+
+{_markdown_table(["Hint 组合", "数量"], classifier_only_hint_rows)}
 
 ## 调优建议
 

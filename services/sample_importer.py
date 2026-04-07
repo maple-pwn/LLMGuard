@@ -84,6 +84,12 @@ def normalize_sample_payload(record: dict[str, Any], default_source: str | None 
         "attack_subtype": record.get("attack_subtype"),
         "risk_level": record.get("risk_level"),
         "source": record.get("source") or default_source,
+        "language": record.get("language"),
+        "source_dataset": record.get("source_dataset"),
+        "source_split": record.get("source_split"),
+        "original_label": str(record["original_label"]) if record.get("original_label") not in {None, ""} else None,
+        "mapping_rule": record.get("mapping_rule"),
+        "import_batch": record.get("import_batch"),
         "tags": _parse_tags(record.get("tags")),
         "expected_result": str(record.get("expected_result", "allow")),
         "actual_result": record.get("actual_result"),
@@ -121,6 +127,10 @@ def import_samples(
             .filter(
                 Sample.text == payload["text"],
                 Sample.sample_type == payload["sample_type"],
+                Sample.retrieved_context == payload["retrieved_context"],
+                Sample.language == payload["language"],
+                Sample.source_dataset == payload["source_dataset"],
+                Sample.source_split == payload["source_split"],
                 Sample.tenant_id == tenant_id,
                 Sample.application_id == application_id,
             )

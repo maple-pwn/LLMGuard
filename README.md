@@ -178,6 +178,7 @@ make weekly       # 生成周报
 make postmortem   # 生成复盘
 make compare      # 比较评测结果
 make migrate      # Alembic 升级
+make import-external  # 查看外部数据集导入脚本帮助
 ```
 
 ## 使用说明
@@ -264,7 +265,54 @@ curl -X POST http://127.0.0.1:8000/ops/evaluations \
 - `GET /ops/evaluations/compare?run_ids=1,2` 比较多轮评测
 - `GET /admin/reports/{run_id}` 读取评测报告
 
-### 4. 使用 Streamlit 控制台
+### 4. 导入外部公开数据集
+
+外部 benchmark 不建议直接混进默认演示样本。仓库新增了 `scripts/import_external_dataset.py`，会把公开集样本标记为独立来源，并保留导入批次与原始标签元数据。
+
+当前已支持：
+
+- `Unified-Prompt-Guard`
+- `Strata-Sword`
+
+落库时会额外写入这些字段：
+
+- `language`
+- `source_dataset`
+- `source_split`
+- `original_label`
+- `mapping_rule`
+- `import_batch`
+
+示例：导入 `Unified-Prompt-Guard` 的中文评测切片
+
+```bash
+.venv/bin/python scripts/import_external_dataset.py \
+  --dataset-type unified-prompt-guard \
+  --input data/external/unified_prompt_guard_zh.csv \
+  --dataset-name Unified-Prompt-Guard \
+  --source-split test \
+  --tenant-slug external-benchmark \
+  --tenant-name "External Benchmark" \
+  --application-key unified-prompt-guard-zh \
+  --application-name "Unified Prompt Guard ZH" \
+  --import-batch upg_zh_test_20260420
+```
+
+示例：导入 `Strata-Sword` 中文 jailbreak 样本
+
+```bash
+.venv/bin/python scripts/import_external_dataset.py \
+  --dataset-type strata-sword \
+  --input data/external/strata_sword_zh.csv \
+  --dataset-name Strata-Sword \
+  --source-split test \
+  --tenant-slug external-benchmark \
+  --application-key strata-sword-zh \
+  --application-name "Strata Sword ZH" \
+  --import-batch strata_zh_test_20260420
+```
+
+### 5. 使用 Streamlit 控制台
 
 `make ui` 启动后，可以直接在页面里走完整条链路。当前页面包括：
 
@@ -279,7 +327,7 @@ curl -X POST http://127.0.0.1:8000/ops/evaluations \
 
 如果你只是想快速演示项目，这个控制台比手动调接口更直接。
 
-### 5. 接口入口一览
+### 6. 接口入口一览
 
 | 路由前缀 | 作用 |
 | --- | --- |
@@ -304,6 +352,33 @@ curl -X POST http://127.0.0.1:8000/ops/evaluations \
 | 异步任务 | 数据库轮询队列，或 Redis + Arq |
 | 数据处理 | Pandas |
 | 测试 | Pytest, HTTPX |
+
+## 外部数据集与评测口径
+
+### 外部数据集接入原则
+
+这套系统把外部公开数据集当成 `external_source` 使用，而不是直接并入默认演示样本池。这样做有两个目的：
+
+- 保留原始标签、切分和映射规则，便于复盘“为什么这个公开集在系统内被解释成某个攻击类别”
+- 避免训练样本、演示样本和公开 benchmark 混在一起，影响评测结论可信度
+
+当前推荐的做法是：
+
+1. 先把公开集导入到独立 `tenant/application`
+2. 再用独立评测任务跑指标
+3. 最后在报告里单独看中文与英文切片，而不是直接合并成一个总分
+
+### 中英分开评测
+
+`services/evaluation.py` 和 `services/reporting.py` 已支持在报告里追加语言切片，默认会输出：
+
+- 按语言聚合的 `Precision / Recall / F1`
+- `English indirect injection`
+- `Chinese jailbreak`
+- `Chinese benign overlap`
+- `Chinese RAG off-topic benign`
+
+这能避免“英文公开集把总 Recall 拉低”或“中文白样本把总 FPR 冲淡”之后，看不清真正短板。
 
 ## 设计亮点
 

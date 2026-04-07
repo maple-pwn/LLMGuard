@@ -1,6 +1,6 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: init run ui test seed eval train scan audit rule-report cases weekly postmortem compare worker migrate
+.PHONY: init run ui test seed eval train scan audit rule-report cases weekly postmortem compare worker migrate import-external
 
 init:
 	python3 -m venv .venv
@@ -52,3 +52,6 @@ postmortem:
 
 compare:
 	$(PYTHON) scripts/compare_strategies.py --run-id 6
+
+import-external:
+	$(PYTHON) scripts/import_external_dataset.py --help

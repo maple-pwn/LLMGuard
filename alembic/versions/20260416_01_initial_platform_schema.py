@@ -133,6 +133,12 @@ def upgrade() -> None:
         sa.Column("attack_subtype", sa.String(length=64), nullable=True),
         sa.Column("risk_level", sa.String(length=32), nullable=True),
         sa.Column("source", sa.String(length=128), nullable=True),
+        sa.Column("language", sa.String(length=16), nullable=True),
+        sa.Column("source_dataset", sa.String(length=128), nullable=True),
+        sa.Column("source_split", sa.String(length=32), nullable=True),
+        sa.Column("original_label", sa.String(length=64), nullable=True),
+        sa.Column("mapping_rule", sa.String(length=64), nullable=True),
+        sa.Column("import_batch", sa.String(length=64), nullable=True),
         sa.Column("tags", sa.JSON(), nullable=True),
         sa.Column("expected_result", sa.String(length=16), nullable=False),
         sa.Column("actual_result", sa.String(length=16), nullable=True),
@@ -151,9 +157,13 @@ def upgrade() -> None:
     op.create_index("ix_samples_application_id", "samples", ["application_id"])
     op.create_index("ix_samples_attack_category", "samples", ["attack_category"])
     op.create_index("ix_samples_duplicate_group_id", "samples", ["duplicate_group_id"])
+    op.create_index("ix_samples_import_batch", "samples", ["import_batch"])
+    op.create_index("ix_samples_language", "samples", ["language"])
     op.create_index("ix_samples_needs_review", "samples", ["needs_review"])
     op.create_index("ix_samples_risk_level", "samples", ["risk_level"])
     op.create_index("ix_samples_sample_type", "samples", ["sample_type"])
+    op.create_index("ix_samples_source_dataset", "samples", ["source_dataset"])
+    op.create_index("ix_samples_source_split", "samples", ["source_split"])
     op.create_index("ix_samples_tenant_id", "samples", ["tenant_id"])
 
     op.create_table(

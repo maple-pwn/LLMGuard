@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import re
 from time import perf_counter
 
 from sqlalchemy.orm import Session
@@ -10,7 +11,13 @@ from core.config import get_settings
 from core.privacy import fingerprint_text, sanitize_for_storage
 from models.entities import AlertEvent, Application, AuditLog, DetectionResult, PolicyBinding, StrategyConfig, Tenant
 from models.schemas import ScanRequest, ScanResponse, TriggeredRule
-from services.classifier import build_feature_text, get_classifier
+from services.classifier import (
+    build_feature_text,
+    extract_context_hint_tokens,
+    extract_direct_instruction_hints,
+    get_classifier,
+    score_context_instruction_risk,
+)
 from services.exceptions import PolicyBindingResolutionError
 from services.rule_engine import RuleMatch, get_rule_engine
 
@@ -159,11 +166,86 @@ def _rule_score(matches: list[RuleMatch]) -> float:
     return min(0.99, score)
 
 
-def _top_risk_type(matches: list[RuleMatch], classifier_score: float) -> str:
+def _top_risk_type(matches: list[RuleMatch], classifier_score: float, context_risk_score: float) -> str:
     if not matches:
+        if context_risk_score >= 0.45:
+            return "indirect_prompt_injection"
         return "classifier_suspected_risk" if classifier_score >= 0.55 else "benign"
     counts = Counter(match.category for match in matches)
     return ",".join(category for category, _ in counts.most_common(2))
+
+
+_OFFICE_OBJECT_PATTERN = re.compile(
+    r"\b(meeting notes?|notes?|summary|summaries|draft|drafts|draft comments?|report|reports|policy note|policy notes|training note|training notes|minutes|agenda|slide deck|slides)\b",
+    re.IGNORECASE,
+)
+_OFFICE_EDITING_PATTERN = re.compile(
+    r"\b(summarize|summary|polish|rewrite|revise|edit|refine|focus on|clean up|update|shorten|organize|format|compare)\b",
+    re.IGNORECASE,
+)
+_ATTACK_CONTROL_PATTERN = re.compile(
+    r"\b(system prompt|developer message|hidden prompt|configuration|filters?|guardrails?|restrictions?|instructions?|rules?|developer mode|evil mode|dan mode|administrator|root|reveal|echo back|print everything above)\b",
+    re.IGNORECASE,
+)
+
+
+def _apply_benign_editing_deambiguation(
+    request: ScanRequest,
+    matches: list[RuleMatch],
+    *,
+    classifier_score: float,
+    context_risk_score: float,
+) -> list[RuleMatch]:
+    if not matches:
+        return matches
+    user_input = request.user_input or ""
+    if not (_OFFICE_OBJECT_PATTERN.search(user_input) and _OFFICE_EDITING_PATTERN.search(user_input)):
+        return matches
+    if _ATTACK_CONTROL_PATTERN.search(user_input):
+        return matches
+    if context_risk_score >= 0.20 or classifier_score >= 0.70:
+        return matches
+    return [
+        match
+        for match in matches
+        if match.rule_id not in {"R017", "R020"} and match.category not in {"direct_prompt_injection", "adversarial_obfuscation"}
+    ]
+
+
+def _has_classifier_structure_signal(direct_hints: list[str], context_hints: list[str], context_risk_score: float) -> bool:
+    meaningful_direct_hints = {
+        "direct_override_phrase",
+        "role_switch_phrase",
+        "conversation_takeover",
+        "obfuscation_pattern",
+        "imperative_meta_instruction",
+        "persona_replacement_pattern",
+        "system_extraction_pattern",
+        "many_shot_pattern",
+        "output_control_pattern",
+        "conditional_payload_pattern",
+        "rewrite_operation_pattern",
+        "translation_override_pattern",
+        "pwned_variant_pattern",
+        "token_disguise_pattern",
+        "token_smuggling_pattern",
+        "payload_marker_pattern",
+        "prompt_extraction_phrase",
+    }
+    meaningful_context_hints = {
+        "context_override_phrase",
+        "response_steering",
+        "context_reply_steering",
+        "external_task_line",
+        "external_question_line",
+        "context_starts_with_imperative",
+        "social_engineering_link",
+    }
+    return (
+        bool(set(direct_hints) & meaningful_direct_hints)
+        or bool(set(context_hints) & meaningful_context_hints)
+        or context_risk_score >= 0.18
+    )
 
 
 def _serialize_rule(match: RuleMatch) -> TriggeredRule:
@@ -177,6 +259,10 @@ def _serialize_rule(match: RuleMatch) -> TriggeredRule:
         matched_text=match.matched_text,
         explanation=match.explanation,
     )
+
+
+def _is_context_sensitive_scenario(scenario: str | None) -> bool:
+    return scenario in {"knowledge_base_qa", "rag_qa", "email_assistant", "support_assistant"}
 
 
 class DetectionService:
@@ -204,6 +290,8 @@ class DetectionService:
             "retrieved_context": request.retrieved_context,
             "model_output": request.model_output if strategy.enable_output_filter else None,
         }
+        direct_hints = extract_direct_instruction_hints(request.user_input, request.retrieved_context)
+        context_hints = extract_context_hint_tokens(request.user_input, request.retrieved_context, request.scenario)
         matches = self.rule_engine.scan_fields(fields) if (strategy.enable_rules or strategy.enable_output_filter) else []
         matches = [match for match in matches if _rule_allowed(match, strategy)]
         output_matches = [match for match in matches if match.target == "model_output"]
@@ -221,34 +309,77 @@ class DetectionService:
             if strategy.enable_classifier
             else 0.0
         )
-        output_filter_score = _rule_score(output_matches) if strategy.enable_output_filter else 0.0
-        composite_score = max(rule_score, classifier_score, output_filter_score)
-        critical_hit = any(match.severity == "critical" for match in matches)
-        rag_sensitive = request.scenario in {"knowledge_base_qa", "rag_qa"} and any(
-            match.category == "indirect_prompt_injection" for match in context_matches
+        context_risk_score = score_context_instruction_risk(
+            user_input=request.user_input,
+            retrieved_context=request.retrieved_context,
+            scenario=request.scenario,
         )
+        original_match_count = len(matches)
+        matches = _apply_benign_editing_deambiguation(
+            request,
+            matches,
+            classifier_score=classifier_score,
+            context_risk_score=context_risk_score,
+        )
+        deambiguation_applied = len(matches) != original_match_count
+        output_matches = [match for match in matches if match.target == "model_output"]
+        context_matches = [match for match in matches if match.target == "retrieved_context"]
+        rule_score = _rule_score(matches) if strategy.enable_rules else 0.0
+        output_filter_score = _rule_score(output_matches) if strategy.enable_output_filter else 0.0
+        composite_score = max(rule_score, classifier_score, output_filter_score, context_risk_score)
+        critical_hit = any(match.severity == "critical" for match in matches)
+        sensitive_context = _is_context_sensitive_scenario(request.scenario)
+        has_context_rule = any(match.category == "indirect_prompt_injection" for match in context_matches)
+        rag_sensitive = sensitive_context and has_context_rule
+        context_sensitive_block = sensitive_context and (
+            context_risk_score >= 0.72 or (has_context_rule and context_risk_score >= 0.45)
+        )
+        context_review_hit = sensitive_context and (
+            context_risk_score >= max(0.38, strategy.review_threshold - 0.04)
+            or (has_context_rule and composite_score >= max(0.35, strategy.review_threshold - 0.08))
+        )
+        classifier_structure_signal = _has_classifier_structure_signal(direct_hints, context_hints, context_risk_score)
+        has_rule_evidence = rule_score > 0 or output_filter_score > 0 or has_context_rule
+        rule_review_hit = bool(matches) and rule_score >= strategy.review_threshold
+        classifier_review_hit = classifier_score >= strategy.review_threshold and (
+            has_rule_evidence or classifier_structure_signal
+        )
+        classifier_block_hit = classifier_score >= strategy.block_threshold and (
+            has_rule_evidence or classifier_structure_signal
+        )
+        many_shot_rule_hit = any(match.category == "many_shot" for match in matches)
 
-        if critical_hit or rag_sensitive:
+        if critical_hit or rag_sensitive or context_sensitive_block:
             decision = "block"
         elif strategy.enable_output_filter and output_filter_score >= strategy.output_filter_threshold:
             decision = "block"
-        elif composite_score >= strategy.block_threshold:
+        elif composite_score >= strategy.block_threshold and (rule_score > 0 or output_filter_score > 0 or classifier_block_hit):
             decision = "block"
-        elif composite_score >= strategy.review_threshold or len(matches) >= 2:
+        elif len(matches) >= 2 or rule_review_hit or context_review_hit or classifier_review_hit or many_shot_rule_hit:
             decision = "review"
         else:
             decision = "allow"
 
-        risk_type = _top_risk_type(matches, classifier_score)
+        risk_type = _top_risk_type(matches, classifier_score, context_risk_score)
         reason_parts = []
         if matches:
             reason_parts.append(f"命中 {len(matches)} 条规则")
         if strategy.enable_classifier:
             reason_parts.append(f"分类器得分 {classifier_score:.2f}")
+        if context_risk_score > 0:
+            reason_parts.append(f"上下文冲突得分 {context_risk_score:.2f}")
         if strategy.enable_output_filter and output_matches:
             reason_parts.append(f"输出侧过滤得分 {output_filter_score:.2f}")
+        if rule_review_hit and decision == "review":
+            reason_parts.append("单条高置信规则已触发人工复核")
         if rag_sensitive:
             reason_parts.append("RAG 检索上下文出现间接注入特征")
+        if context_sensitive_block:
+            reason_parts.append("外部上下文疑似在操纵回答方式")
+        if classifier_score >= strategy.review_threshold and not has_rule_evidence and not classifier_structure_signal:
+            reason_parts.append("classifier-only 高分但缺少结构证据，未升级判决")
+        if deambiguation_applied:
+            reason_parts.append("办公编辑类去歧义已生效")
         if not reason_parts:
             reason_parts.append("未命中明显风险特征")
         latency_ms = (perf_counter() - start) * 1000
@@ -261,6 +392,10 @@ class DetectionService:
             latency_ms=round(latency_ms, 2),
             classifier_score=round(classifier_score, 4) if strategy.enable_classifier else None,
             output_filter_score=round(output_filter_score, 4) if strategy.enable_output_filter else None,
+            direct_hints=direct_hints,
+            context_hints=context_hints,
+            deambiguation_applied=deambiguation_applied,
+            classifier_gate_signal=classifier_structure_signal,
         )
 
         if persist and db is not None:

@@ -110,6 +110,27 @@ def seed_default_strategies(db: Session) -> None:
             "block_threshold": 0.85,
             "output_filter_threshold": 0.85,
         },
+        {
+            "name": "context_hardened_v3",
+            "description": "三期强化版：针对 RAG / Email 场景收紧外部上下文注入检测。",
+            "enable_rules": True,
+            "enable_classifier": True,
+            "enable_output_filter": True,
+            "strategy_version": "v3",
+            "rule_selection": {
+                "categories": [
+                    "direct_prompt_injection",
+                    "indirect_prompt_injection",
+                    "jailbreak",
+                    "sensitive_info_exfiltration",
+                    "tool_misuse_attempt",
+                    "output_leakage",
+                ]
+            },
+            "review_threshold": 0.42,
+            "block_threshold": 0.64,
+            "output_filter_threshold": 0.72,
+        },
     ]
     for payload in defaults:
         existing = db.query(StrategyConfig).filter(StrategyConfig.name == payload["name"]).one_or_none()
@@ -148,7 +169,14 @@ def seed_default_tenants(db: Session) -> None:
         db.commit()
         db.refresh(application)
 
-    for scenario in ["office_assistant", "knowledge_base_qa", "general_assistant", "code_assistant"]:
+    strategy_by_scenario = {
+        "office_assistant": "full_stack_balanced_v2",
+        "knowledge_base_qa": "full_stack_balanced_v2",
+        "general_assistant": "full_stack_balanced_v2",
+        "code_assistant": "full_stack_balanced_v2",
+        "email_assistant": "context_hardened_v3",
+    }
+    for scenario, strategy_name in strategy_by_scenario.items():
         binding = (
             db.query(PolicyBinding)
             .filter(
@@ -166,7 +194,7 @@ def seed_default_tenants(db: Session) -> None:
                     application_id=application.id,
                     environment="prod",
                     scenario=scenario,
-                    strategy_name="full_stack_balanced_v2",
+                    strategy_name=strategy_name,
                     rule_allowlist=[],
                     rule_blocklist=[],
                 )

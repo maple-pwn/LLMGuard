@@ -24,13 +24,7 @@ def _load_rows(path: Path) -> list[dict]:
     return [normalize_sample_payload(row, default_source=path.name) for row in load_records_from_path(path)]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate classifier with a holdout split")
-    parser.add_argument("--input", default=str(ROOT / "data/samples"))
-    parser.add_argument("--test-size", type=float, default=0.3)
-    args = parser.parse_args()
-
-    rows = _load_rows(Path(args.input))
+def _build_holdout_split(rows: list[dict], test_size: float) -> tuple[list[str], list[str], list[int], list[int], list[dict], list[dict]]:
     texts = [
         build_feature_text(
             user_input=row["text"],
@@ -41,9 +35,27 @@ def main() -> None:
         for row in rows
     ]
     labels = [1 if is_positive_sample(row) else 0 for row in rows]
-    x_train, x_test, y_train, y_test = train_test_split(texts, labels, test_size=args.test_size, random_state=42, stratify=labels)
+    train_rows, test_rows, x_train, x_test, y_train, y_test = train_test_split(
+        rows,
+        texts,
+        labels,
+        test_size=test_size,
+        random_state=42,
+        stratify=labels,
+    )
+    return x_train, x_test, y_train, y_test, train_rows, test_rows
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Evaluate classifier with a holdout split")
+    parser.add_argument("--input", default=str(ROOT / "data/samples"))
+    parser.add_argument("--test-size", type=float, default=0.3)
+    args = parser.parse_args()
+
+    rows = _load_rows(Path(args.input))
+    x_train, x_test, y_train, y_test, train_rows, _test_rows = _build_holdout_split(rows, args.test_size)
     classifier = RiskClassifier(model_path=ROOT / "data/models/temp_eval_model.joblib")
-    classifier.train(x_train, y_train)
+    classifier.train(x_train, y_train, semantic_rows=train_rows)
     print(classifier.evaluate(x_test, y_test))
 
 

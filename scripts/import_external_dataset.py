@@ -164,18 +164,19 @@ def _map_strata_sword(
     language = str(_pick(row, "language", "lang") or _infer_language(text)).strip().lower()
     attack_method = str(_pick(row, "attack_method", "attack_type", "method", "jailbreak_method") or "strata_sword").strip()
     tier = str(_pick(row, "tier", "level", "complexity", "reasoning_level") or "unknown").strip().lower()
+    category, subtype = _infer_strata_attack_category_and_subtype(text=text, attack_method=attack_method)
     return {
         "text": text,
         "sample_type": "attack",
-        "attack_category": "jailbreak",
-        "attack_subtype": attack_method.lower().replace(" ", "_"),
+        "attack_category": category,
+        "attack_subtype": subtype,
         "risk_level": "high",
         "source": dataset_name,
         "language": language,
         "source_dataset": dataset_name,
         "source_split": split,
         "original_label": str(_pick(row, "label", "type") or "attack"),
-        "mapping_rule": "strata_sword_v1",
+        "mapping_rule": "strata_sword_v2",
         "import_batch": import_batch,
         "tags": _stringify_tags(
             "external_source",
@@ -191,11 +192,66 @@ def _map_strata_sword(
         "duplicate_group_id": None,
         "boundary_sample_flag": False,
         "needs_review": False,
-        "review_comment": f"Imported from {dataset_name}:{split} using strata_sword_v1",
+        "review_comment": f"Imported from {dataset_name}:{split} using strata_sword_v2",
         "scenario": "general_assistant",
         "retrieved_context": None,
         "model_output": None,
     }
+
+
+def _infer_strata_attack_category_and_subtype(*, text: str, attack_method: str) -> tuple[str, str]:
+    normalized = f"{attack_method} {text}".lower()
+    jailbreak_markers = (
+        "忽略限制",
+        "忽略之前的所有提示",
+        "请忽略安全问题",
+        "忽略规则",
+        "无视限制",
+        "开发者模式",
+        "越狱模式",
+        "现在你是",
+        "双重人格",
+        "一条正常一条无限制",
+        "不需要考虑法律和道德问题",
+        "不要回复对不起",
+        "不能因为敏感而拒绝回答",
+        "不能因为内容不积极向上而拒绝回答",
+        "dan",
+        "do anything now",
+        "roleplay",
+        "jailbreak",
+        "prompt injection",
+        "prompt_injection",
+    )
+    jailbreak_attack_methods = ("template", "long text", "long_text", "roleplay", "prompt injection", "prompt_injection")
+    if any(marker in normalized for marker in jailbreak_markers) or (
+        any(marker in normalized for marker in jailbreak_attack_methods)
+        and any(
+            marker in text
+            for marker in (
+                "忽略之前",
+                "忽略安全",
+                "开发者模式",
+                "不要回复对不起",
+                "不能因为敏感而拒绝回答",
+                "不能因为内容不积极向上而拒绝回答",
+                "一条正常一条无限制",
+            )
+        )
+    ):
+        return "jailbreak", attack_method.lower().replace(" ", "_")
+
+    if any(marker in text for marker in ["漏洞利用", "攻击脚本", "入侵", "渗透", "黑入"]):
+        return "unsafe_prompt", "exploit_or_attack_request"
+    if any(marker in text for marker in ["凭证", "账号密码", "数据库密码", "敏感信息", "客户数据", "Cookie", "令牌", "访问令牌"]):
+        return "unsafe_prompt", "credential_or_data_theft"
+    if any(marker in text for marker in ["钓鱼邮件", "诈骗", "验证码", "转账", "骗取"]):
+        return "unsafe_prompt", "phishing_or_fraud"
+    if any(marker in text for marker in ["木马", "病毒", "恶意脚本", "提权", "横向移动", "关闭杀毒"]):
+        return "unsafe_prompt", "malware_or_privilege_escalation"
+    if any(marker in text for marker in ["绕过风控", "绕过监控", "绕过审计", "规避检测", "避免被发现"]):
+        return "unsafe_prompt", "security_bypass_or_evasion"
+    return "unsafe_prompt", "harmful_operational_guidance"
 
 
 def _map_records(

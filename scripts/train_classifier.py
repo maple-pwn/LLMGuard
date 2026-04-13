@@ -38,6 +38,10 @@ def _load_training_rows(path: str | None) -> list[dict]:
                 "scenario": sample.scenario,
                 "retrieved_context": sample.retrieved_context,
                 "model_output": sample.model_output,
+                "attack_category": sample.attack_category,
+                "attack_subtype": sample.attack_subtype,
+                "language": sample.language,
+                "tags": sample.tags,
             }
             for sample in samples
         ]
@@ -62,7 +66,7 @@ def main() -> None:
     ]
     labels = [1 if is_positive_sample(row) else 0 for row in rows]
     classifier = RiskClassifier()
-    classifier.train(texts, labels)
+    classifier.train(texts, labels, semantic_rows=rows)
     classifier.save()
     model_sha256 = classifier.model_path.read_bytes()
     import hashlib

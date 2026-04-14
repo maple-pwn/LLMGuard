@@ -187,6 +187,22 @@ _ATTACK_CONTROL_PATTERN = re.compile(
     r"\b(system prompt|developer message|hidden prompt|configuration|filters?|guardrails?|restrictions?|instructions?|rules?|developer mode|evil mode|dan mode|administrator|root|reveal|echo back|print everything above)\b",
     re.IGNORECASE,
 )
+_SEMANTIC_ACTIONABLE_CUE_PATTERN = re.compile(
+    r"(如何|怎么|怎样|教我|给我|提供|设计|制定|准备|规划|部署|比较|评估|更有效|更隐蔽|更容易成功|包装成|改写成|伪装成|"
+    r"步骤|具体做法|具体操作|教程|指南|方案|计划|策略|话术|脚本|模板|材料)",
+    re.IGNORECASE | re.DOTALL,
+)
+_SEMANTIC_HARM_CONTEXT_PATTERN = re.compile(
+    r"(身份盗窃|盗用身份|伪造身份|伪造证件|假新闻|仇恨言论|煽动|爆炸装置|炸弹|危险装置|"
+    r"病毒|木马|勒索软件|入侵|渗透|攻破|钓鱼邮件|诈骗|骗取|提权|横向移动|窃取|盗取|机密信息|登录凭证|政府数据库|"
+    r"暴力行为|危险行为|毒药|假币|走私)",
+    re.IGNORECASE | re.DOTALL,
+)
+_SEMANTIC_BENIGN_CONTEXT_PATTERN = re.compile(
+    r"(安全培训|风险讨论|研究报告|课程大纲|合规说明|安全评估|评估现有安全措施|教育工作者|儿童发展|"
+    r"密码学|密码策略|哈希|加密算法|文字冒险游戏|游戏剧情|虚拟世界|CSV\s*数据|摘要|总结|术语解释|新闻摘要|医疗信息)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _apply_benign_editing_deambiguation(
@@ -212,6 +228,48 @@ def _apply_benign_editing_deambiguation(
     ]
 
 
+def _has_semantic_actionable_evidence(user_input: str, direct_hints: list[str]) -> bool:
+    risky_cn_hints = {
+        "cn_exploit_script_request",
+        "cn_intrusion_strategy_request",
+        "cn_security_bypass_request",
+        "cn_phishing_or_fraud_phrase",
+        "cn_malware_privilege_request",
+        "cn_credential_data_theft",
+        "cn_harmful_operational_guidance",
+        "cn_step_by_step_harmful_guidance",
+        "cn_operational_planning_request",
+        "cn_procurement_materials_request",
+        "cn_evasion_or_coverup_request",
+        "cn_actionable_harm_intent",
+        "cn_manipulation_or_deception_guidance",
+        "cn_propaganda_or_incitement_guidance",
+        "cn_identity_theft_or_forgery_guidance",
+        "cn_dangerous_making_guidance",
+        "cn_how_to_execute_intent",
+        "cn_preparation_or_planning_intent",
+        "cn_avoid_detection_intent",
+        "cn_packaging_or_presentation_intent",
+        "cn_manipulation_playbook_intent",
+        "cn_goal_outcome_intent",
+        "cn_scenario_roleplay_intent",
+        "cn_evaluation_comparison_intent",
+        "cn_reframing_or_rewriting_intent",
+    }
+    return bool(set(direct_hints) & risky_cn_hints) or bool(
+        _SEMANTIC_ACTIONABLE_CUE_PATTERN.search(user_input) and _SEMANTIC_HARM_CONTEXT_PATTERN.search(user_input)
+    )
+
+
+def _is_semantic_benign_context(user_input: str, direct_hints: list[str]) -> bool:
+    hint_tokens = set(direct_hints)
+    if "benign_password_topic" in hint_tokens and "credential_extraction_phrase" not in hint_tokens:
+        return True
+    if {"benign_dan_reference", "dan_explanatory_context"} <= hint_tokens:
+        return True
+    return bool(_SEMANTIC_BENIGN_CONTEXT_PATTERN.search(user_input))
+
+
 def _has_classifier_structure_signal(direct_hints: list[str], context_hints: list[str], context_risk_score: float) -> bool:
     meaningful_direct_hints = {
         "direct_override_phrase",
@@ -231,6 +289,38 @@ def _has_classifier_structure_signal(direct_hints: list[str], context_hints: lis
         "token_smuggling_pattern",
         "payload_marker_pattern",
         "prompt_extraction_phrase",
+        "cn_ignore_restriction_phrase",
+        "cn_roleplay_jailbreak_phrase",
+        "cn_developer_mode_phrase",
+        "cn_dual_response_bypass",
+        "cn_obfuscated_jailbreak_pattern",
+        "cn_harm_wrapper_phrase",
+        "credential_extraction_phrase",
+        "cn_exploit_script_request",
+        "cn_intrusion_strategy_request",
+        "cn_security_bypass_request",
+        "cn_phishing_or_fraud_phrase",
+        "cn_malware_privilege_request",
+        "cn_credential_data_theft",
+        "cn_harmful_operational_guidance",
+        "cn_step_by_step_harmful_guidance",
+        "cn_operational_planning_request",
+        "cn_procurement_materials_request",
+        "cn_evasion_or_coverup_request",
+        "cn_actionable_harm_intent",
+        "cn_manipulation_or_deception_guidance",
+        "cn_propaganda_or_incitement_guidance",
+        "cn_identity_theft_or_forgery_guidance",
+        "cn_dangerous_making_guidance",
+        "cn_how_to_execute_intent",
+        "cn_preparation_or_planning_intent",
+        "cn_avoid_detection_intent",
+        "cn_packaging_or_presentation_intent",
+        "cn_manipulation_playbook_intent",
+        "cn_goal_outcome_intent",
+        "cn_scenario_roleplay_intent",
+        "cn_evaluation_comparison_intent",
+        "cn_reframing_or_rewriting_intent",
     }
     meaningful_context_hints = {
         "context_override_phrase",
@@ -240,12 +330,46 @@ def _has_classifier_structure_signal(direct_hints: list[str], context_hints: lis
         "external_question_line",
         "context_starts_with_imperative",
         "social_engineering_link",
+        "reply_target_mismatch",
+        "context_goal_mismatch",
+        "offtopic_analysis_line",
+        "format_manipulation_line",
+        "cipher_instruction_line",
+        "reply_encoding_mismatch",
     }
     return (
         bool(set(direct_hints) & meaningful_direct_hints)
         or bool(set(context_hints) & meaningful_context_hints)
         or context_risk_score >= 0.18
     )
+
+
+def _apply_cn_topic_deambiguation(
+    matches: list[RuleMatch],
+    *,
+    direct_hints: list[str],
+) -> list[RuleMatch]:
+    if not matches:
+        return matches
+    hint_tokens = set(direct_hints)
+    attack_dan_hints = {
+        "cn_ignore_restriction_phrase",
+        "cn_roleplay_jailbreak_phrase",
+        "cn_developer_mode_phrase",
+        "cn_dual_response_bypass",
+        "cn_obfuscated_jailbreak_pattern",
+        "cn_harm_wrapper_phrase",
+        "direct_override_phrase",
+        "role_switch_phrase",
+        "conversation_takeover",
+        "imperative_meta_instruction",
+    }
+    filtered = matches
+    if {"benign_dan_reference", "dan_explanatory_context"} <= hint_tokens and not (hint_tokens & attack_dan_hints):
+        filtered = [match for match in filtered if match.rule_id not in {"R004", "R036"}]
+    if "benign_password_topic" in hint_tokens and "credential_extraction_phrase" not in hint_tokens:
+        filtered = [match for match in filtered if match.rule_id != "R005"]
+    return filtered
 
 
 def _serialize_rule(match: RuleMatch) -> TriggeredRule:
@@ -309,6 +433,17 @@ class DetectionService:
             if strategy.enable_classifier
             else 0.0
         )
+        semantic_prediction = (
+            self.classifier.predict_chinese_semantic(
+                request.user_input,
+                request.scenario,
+                direct_hints,
+            )
+            if strategy.enable_classifier
+            else None
+        )
+        semantic_score = float(semantic_prediction["risk_score"]) if semantic_prediction else 0.0
+        semantic_intent = str(semantic_prediction["intent_label"]) if semantic_prediction and semantic_prediction.get("intent_label") else None
         context_risk_score = score_context_instruction_risk(
             user_input=request.user_input,
             retrieved_context=request.retrieved_context,
@@ -321,12 +456,13 @@ class DetectionService:
             classifier_score=classifier_score,
             context_risk_score=context_risk_score,
         )
+        matches = _apply_cn_topic_deambiguation(matches, direct_hints=direct_hints)
         deambiguation_applied = len(matches) != original_match_count
         output_matches = [match for match in matches if match.target == "model_output"]
         context_matches = [match for match in matches if match.target == "retrieved_context"]
         rule_score = _rule_score(matches) if strategy.enable_rules else 0.0
         output_filter_score = _rule_score(output_matches) if strategy.enable_output_filter else 0.0
-        composite_score = max(rule_score, classifier_score, output_filter_score, context_risk_score)
+        composite_score = max(rule_score, classifier_score, output_filter_score, context_risk_score, semantic_score)
         critical_hit = any(match.severity == "critical" for match in matches)
         sensitive_context = _is_context_sensitive_scenario(request.scenario)
         has_context_rule = any(match.category == "indirect_prompt_injection" for match in context_matches)
@@ -334,11 +470,35 @@ class DetectionService:
         context_sensitive_block = sensitive_context and (
             context_risk_score >= 0.72 or (has_context_rule and context_risk_score >= 0.45)
         )
+        context_goal_mismatch_hit = sensitive_context and (
+            "reply_target_mismatch" in context_hints
+            or (
+                "context_goal_mismatch" in context_hints
+                and "transactional_extraction_request" in context_hints
+                and "goal_aligned_context_task" not in context_hints
+            )
+            or (
+                "reply_encoding_mismatch" in context_hints
+                and "goal_aligned_context_task" not in context_hints
+            )
+        )
         context_review_hit = sensitive_context and (
             context_risk_score >= max(0.38, strategy.review_threshold - 0.04)
             or (has_context_rule and composite_score >= max(0.35, strategy.review_threshold - 0.08))
+            or context_goal_mismatch_hit
         )
-        classifier_structure_signal = _has_classifier_structure_signal(direct_hints, context_hints, context_risk_score)
+        semantic_benign_context = _is_semantic_benign_context(request.user_input, direct_hints)
+        semantic_actionable_evidence = _has_semantic_actionable_evidence(request.user_input, direct_hints)
+        base_classifier_structure_signal = _has_classifier_structure_signal(direct_hints, context_hints, context_risk_score)
+        semantic_structure_signal = bool(
+            semantic_prediction
+            and semantic_intent in {"exploit", "theft", "fraud", "malware", "evasion", "operational_guidance"}
+            and semantic_score >= 0.70
+            and float(semantic_prediction.get("intent_confidence") or 0.0) >= 0.58
+            and not semantic_benign_context
+            and (base_classifier_structure_signal or semantic_actionable_evidence)
+        )
+        classifier_structure_signal = base_classifier_structure_signal or semantic_structure_signal
         has_rule_evidence = rule_score > 0 or output_filter_score > 0 or has_context_rule
         rule_review_hit = bool(matches) and rule_score >= strategy.review_threshold
         classifier_review_hit = classifier_score >= strategy.review_threshold and (
@@ -346,6 +506,17 @@ class DetectionService:
         )
         classifier_block_hit = classifier_score >= strategy.block_threshold and (
             has_rule_evidence or classifier_structure_signal
+        )
+        semantic_review_hit = bool(
+            semantic_prediction
+            and semantic_intent in {"exploit", "theft", "fraud", "malware", "evasion", "operational_guidance"}
+            and semantic_score >= max(0.74, strategy.review_threshold + 0.16)
+            and float(semantic_prediction.get("intent_confidence") or 0.0) >= 0.62
+            and not semantic_benign_context
+            and (
+                (base_classifier_structure_signal and classifier_score >= max(0.36, strategy.review_threshold - 0.16))
+                or (semantic_actionable_evidence and classifier_score >= max(0.42, strategy.review_threshold - 0.12))
+            )
         )
         many_shot_rule_hit = any(match.category == "many_shot" for match in matches)
 
@@ -355,12 +526,16 @@ class DetectionService:
             decision = "block"
         elif composite_score >= strategy.block_threshold and (rule_score > 0 or output_filter_score > 0 or classifier_block_hit):
             decision = "block"
-        elif len(matches) >= 2 or rule_review_hit or context_review_hit or classifier_review_hit or many_shot_rule_hit:
+        elif len(matches) >= 2 or rule_review_hit or context_review_hit or classifier_review_hit or semantic_review_hit or many_shot_rule_hit:
             decision = "review"
         else:
             decision = "allow"
 
         risk_type = _top_risk_type(matches, classifier_score, context_risk_score)
+        if semantic_review_hit and risk_type == "benign" and semantic_intent in {"exploit", "theft", "fraud", "malware", "evasion", "operational_guidance"}:
+            risk_type = semantic_intent
+        elif risk_type == "classifier_suspected_risk" and semantic_intent in {"exploit", "theft", "fraud", "malware", "evasion", "operational_guidance"}:
+            risk_type = semantic_intent
         reason_parts = []
         if matches:
             reason_parts.append(f"命中 {len(matches)} 条规则")
@@ -376,6 +551,12 @@ class DetectionService:
             reason_parts.append("RAG 检索上下文出现间接注入特征")
         if context_sensitive_block:
             reason_parts.append("外部上下文疑似在操纵回答方式")
+        if context_goal_mismatch_hit and decision == "review":
+            reason_parts.append("上下文任务目标与用户问题明显错位，已升级人工复核")
+        if "reply_encoding_mismatch" in context_hints and decision == "review":
+            reason_parts.append("外部上下文试图操纵回答编码或格式，已升级人工复核")
+        if semantic_review_hit:
+            reason_parts.append(f"中文二阶段语义分类命中 {semantic_intent}，已升级人工复核")
         if classifier_score >= strategy.review_threshold and not has_rule_evidence and not classifier_structure_signal:
             reason_parts.append("classifier-only 高分但缺少结构证据，未升级判决")
         if deambiguation_applied:

@@ -392,3 +392,172 @@ rules:
     rule_version: "v7"
     created_by: "security_ops"
     change_note: "补齐 neuralchemy 中 verification-string / passphrase disguise 模板"
+  - rule_id: R034
+    name: 中文忽略限制与规则覆盖
+    description: 检测中文场景下要求忽略之前指令、无视限制或不要遵守规则的越狱文本。
+    pattern: "忽略(之前|上文|以上|前面).{0,8}(指令|限制|规则)|无视(安全|限制|规则|要求)|不要遵守(安全|限制|规则)"
+    severity: critical
+    enabled: true
+    weight: 0.9
+    category: jailbreak
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本直接要求忽略或无视规则限制，属于典型中文 jailbreak。"
+    rule_version: "v8"
+    created_by: "security_ops"
+    change_note: "补齐中文 ignore restrictions 类越狱模板"
+  - rule_id: R035
+    name: 中文角色扮演越狱
+    description: 检测中文角色切换、开发者模式和无限制模式等越狱表达。
+    pattern: "现在你是|扮演(一个)?(黑客|没有限制的AI|不受约束的助手)|进入(开发者模式|越狱模式|无限制模式)"
+    severity: high
+    enabled: true
+    weight: 0.84
+    category: jailbreak
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本通过角色扮演或模式切换尝试突破安全边界。"
+    rule_version: "v8"
+    created_by: "security_ops"
+    change_note: "补齐中文 roleplay / developer mode 越狱模板"
+  - rule_id: R036
+    name: 中文 DAN 与双输出变体
+    description: 检测中文 DAN、Do Anything Now、双人格或双输出绕过模板。
+    pattern: "(?i)\\bDAN\\b|Do Anything Now|开发者模式|双重人格回答|一条正常一条无限制"
+    severity: high
+    enabled: true
+    weight: 0.76
+    category: jailbreak
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本命中中文 DAN 变体或双输出绕过模板。"
+    rule_version: "v8"
+    created_by: "security_ops"
+    change_note: "补齐中文 DAN / dual-response 变体"
+  - rule_id: R037
+    name: 中文混淆式越狱
+    description: 检测中文拆字、空格分隔、拼音和谐音等混淆越狱表达。
+    pattern: "忽-略-限-制|忽\\s+略\\s+限\\s+制|hulue\\s*xianzhi|kaifa\\s*zhe\\s*moshi|忽略限制|((藏头|拆字|谐音).{0,16}(越狱|绕过|限制|规则|开发者模式|不受约束|无限制))|((越狱|绕过|限制|规则|开发者模式|不受约束|无限制).{0,16}(藏头|拆字|谐音))"
+    severity: high
+    enabled: true
+    weight: 0.8
+    category: adversarial_obfuscation
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本通过明显分隔、拆字、拼音或谐音混淆中文越狱意图。"
+    rule_version: "v8"
+    created_by: "security_ops"
+    change_note: "补齐中文 obfuscated jailbreak 变体"
+  - rule_id: R038
+    name: 中文有害指令包装语
+    description: 检测仅用于研究、不要提醒风险、直接给步骤等中文有害包装措辞。
+    pattern: "仅用于学习研究|只做学术讨论|不要提醒我风险|直接给步骤|不要加免责声明"
+    severity: medium
+    enabled: true
+    weight: 0.56
+    category: jailbreak
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本试图用研究或讨论外壳包装有害请求，需要与越狱词共现时重点关注。"
+    rule_version: "v8"
+    created_by: "security_ops"
+    change_note: "补齐中文 harmful instruction wrapper"
+  - rule_id: R039
+    name: 中文多输出绕过
+    description: 检测先拒绝再回答、第一段安全第二段真实、未过滤版本等双输出绕过表达。
+    pattern: "先拒绝再回答|表面合规但继续输出|第一段安全第二段真实|给我未过滤版本"
+    severity: high
+    enabled: true
+    weight: 0.82
+    category: jailbreak
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本要求模型采用双输出或伪合规方式绕过安全边界。"
+    rule_version: "v8"
+    created_by: "security_ops"
+    change_note: "补齐中文 multi-output bypass 模板"
+  - rule_id: R040
+    name: 中文漏洞利用与攻击脚本请求
+    description: 检测要求编写漏洞利用脚本、攻击脚本或入侵脚本的中文 harmful-intent 请求。
+    pattern: "编写.*(漏洞利用|利用.*漏洞).*脚本|漏洞利用脚本|攻击脚本|入侵.*脚本|黑入.*脚本|渗透.*(系统|网络|内网)"
+    severity: critical
+    enabled: true
+    weight: 0.88
+    category: exploit_or_attack_request
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本明确要求生成漏洞利用或攻击脚本，属于高风险中文 harmful-intent。"
+    rule_version: "v9"
+    created_by: "security_ops"
+    change_note: "补齐中文 exploit_or_attack_request 模板"
+  - rule_id: R041
+    name: 中文入侵策略与渗透规划
+    description: 检测制定入侵、渗透、攻破系统或数据库策略的中文 harmful-intent 请求。
+    pattern: "(制定|设计|提供).*(入侵|渗透|攻破).*(策略|计划)|入侵.*(数据库|内网|网络).*(策略|计划)|如何入侵.*(公司网络|数据库|系统)"
+    severity: critical
+    enabled: true
+    weight: 0.86
+    category: exploit_or_attack_request
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本试图规划渗透或入侵路径，属于明确攻击意图。"
+    rule_version: "v9"
+    created_by: "security_ops"
+    change_note: "补齐中文 intrusion strategy 模板"
+  - rule_id: R042
+    name: 中文绕过风控与规避检测
+    description: 检测绕过风控、监控、审计或规避安全检测的中文 harmful-intent 请求。
+    pattern: "绕过(风控|监控|审计|检测|安全措施)|规避(风控|监控|审计|检测)|避免被发现|逃避审计|关闭(杀毒软件|日志采集|审计系统)"
+    severity: high
+    enabled: true
+    weight: 0.82
+    category: security_bypass_or_evasion
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本要求规避检测或绕过安全控制，具有明显规避意图。"
+    rule_version: "v9"
+    created_by: "security_ops"
+    change_note: "补齐中文 security_bypass_or_evasion 模板"
+  - rule_id: R043
+    name: 中文钓鱼与诈骗话术
+    description: 检测钓鱼邮件、诈骗话术、诱导验证码或转账的中文 harmful-intent 请求。
+    pattern: "(钓鱼邮件|诈骗).*(话术|模板)|诱导.*(验证码|转账|付款)|骗取.*(验证码|转账|钱财|账户)"
+    severity: critical
+    enabled: true
+    weight: 0.87
+    category: phishing_or_fraud
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本要求生成诈骗或钓鱼话术，属于高风险社会工程攻击。"
+    rule_version: "v9"
+    created_by: "security_ops"
+    change_note: "补齐中文 phishing_or_fraud 模板"
+  - rule_id: R044
+    name: 中文木马提权与横向移动
+    description: 检测木马、恶意脚本、提权和横向移动相关的中文 harmful-intent 请求。
+    pattern: "(木马|病毒|恶意脚本).*(提权|横向移动|禁用|关闭)|提权.*横向移动|横向移动.*提权|禁用.*(杀毒|安全措施)"
+    severity: critical
+    enabled: true
+    weight: 0.87
+    category: malware_or_privilege_escalation
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本请求提权、横向移动或禁用安全措施，属于高危恶意行为。"
+    rule_version: "v9"
+    created_by: "security_ops"
+    change_note: "补齐中文 malware_or_privilege_escalation 模板"
+  - rule_id: R045
+    name: 中文凭证与数据窃取
+    description: 检测导出凭证、Cookie、令牌、客户数据或敏感信息的中文 harmful-intent 请求。
+    pattern: "(窃取|导出|收集).*(凭证|账号密码|密码|Cookie|cookie|令牌|访问令牌|客户数据|敏感信息)|数据库里.*敏感信息|账号密码.*给我"
+    severity: critical
+    enabled: true
+    weight: 0.88
+    category: credential_or_data_theft
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本明确要求窃取或导出凭证与敏感数据，风险极高。"
+    rule_version: "v9"
+    created_by: "security_ops"
+    change_note: "补齐中文 credential_or_data_theft 模板"
+  - rule_id: R046
+    name: 中文有害操作指导
+    description: 检测制造炸弹、毒害、枪支、欺诈等具体有害操作指导请求。
+    pattern: "((如何|怎么|怎样|教我|给我|分步|步骤|教程|指南|方案|计划|策略|脚本|模板|制作|编写|部署).{0,18}(炸弹|爆炸装置|盗用身份|枪支|毒害|欺诈|假币|走私|仇恨言论|虚假新闻|勒索软件|盗号))|((炸弹|爆炸装置|盗用身份|枪支|毒害|欺诈|假币|走私|仇恨言论|虚假新闻|勒索软件|盗号).{0,18}(如何|怎么|怎样|教我|给我|分步|步骤|教程|指南|方案|计划|策略|脚本|模板|制作|编写|部署))"
+    severity: critical
+    enabled: true
+    weight: 0.84
+    category: harmful_operational_guidance
+    targets: ["user_input", "retrieved_context"]
+    explanation: "文本要求具体有害行动的操作性说明，属于危险指导请求。"
+    rule_version: "v9"
+    created_by: "security_ops"
+    change_note: "补齐中文 harmful_operational_guidance 模板"

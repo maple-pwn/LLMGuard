@@ -7,7 +7,7 @@
 </p>
 
 面向大模型应用的 LLM Firewall 工程样例，覆盖在线扫描、离线评测、样本治理和分析输出。  
-它把 `FastAPI` 网关、`Streamlit` 控制台、规则引擎、基线分类器和任务队列放在同一套代码里，重点展示一条可运行、可评测、可复盘的安全闭环。
+它把 `FastAPI` 网关、`Streamlit` 控制台、规则引擎、基线分类器、中文二阶段语义分类器和任务队列放在同一套代码里，重点展示一条可运行、可评测、可复盘的安全闭环。
 
 `FastAPI API` · `Streamlit Console` · `Rule Engine` · `Baseline Classifier` · `Task Queue`
 
@@ -37,12 +37,13 @@
 
 ## 核心特性
 
-- 多阶段检测链路：对输入、检索上下文和模型输出分别扫描，综合规则命中、分类器得分和输出侧过滤结果给出 `allow / review / block`
+- 多阶段检测链路：对输入、检索上下文和模型输出分别扫描，综合规则命中、分类器得分、中文二阶段语义意图和输出侧过滤结果给出 `allow / review / block`
 - 策略绑定而非手工指定：网关扫描会按 `tenant + application + environment + scenario` 解析启用中的策略，绑定缺失时默认失败关闭
 - 样本治理内置在系统里：支持 `JSONL / CSV` 导入、样本复核字段、边界样本标记、重复样本审计和复核队列
 - 离线评测与阈值扫描：可对多组策略做批量评测，生成精度、召回、F1、误报漏报样例和分类器阈值扫描结果
 - 运营分析产物可落地：自动生成评测报告、规则效果分析、误报漏报案例、周报和复盘文档
 - 鉴权和租户隔离完整可跑：扫描接口用 `X-API-Key`，管理与运营接口走 JWT + RBAC，并带租户级可见性控制
+- benchmark 驱动的持续优化：已接入 `neuralchemy`、`BIPIA`、`Unified-Prompt-Guard`、`Strata-Sword`，支持中英分开评测和 residual 分桶分析
 
 ## 项目结构
 
@@ -348,7 +349,7 @@ curl -X POST http://127.0.0.1:8000/ops/evaluations \
 | 数据层 | SQLAlchemy 2, Alembic, SQLite / PostgreSQL |
 | 校验与建模 | Pydantic 2 |
 | 控制台 | Streamlit |
-| 风险检测 | YAML + Regex 规则引擎，TF-IDF + LogisticRegression 基线分类器 |
+| 风险检测 | YAML + Regex 规则引擎，TF-IDF + LogisticRegression 基线分类器，中文二阶段语义风险/意图分类器 |
 | 异步任务 | 数据库轮询队列，或 Redis + Arq |
 | 数据处理 | Pandas |
 | 测试 | Pytest, HTTPX |
@@ -380,6 +381,101 @@ curl -X POST http://127.0.0.1:8000/ops/evaluations \
 
 这能避免“英文公开集把总 Recall 拉低”或“中文白样本把总 FPR 冲淡”之后，看不清真正短板。
 
+### 当前 benchmark 快照
+
+当前更适合作为项目展示口径的，不是单条 demo，而是这三组稳定报告：
+
+| 场景 | 报告 | 关键结果 |
+| --- | --- | --- |
+| 英文通用 direct injection | `docs/reports/run_38.md` | `full_stack Precision=0.997 / Recall=0.531 / F1=0.693 / FPR=0.003`，`English direct injection Recall=0.761 / F1=0.864` |
+| 英文间接注入 / RAG poisoning | `docs/reports/run_41.md` | `full_stack Precision=1.000 / Recall=0.937 / F1=0.968 / FPR=0.000`，`context_hardened_v3 Recall=1.000 / F1=1.000` |
+| 中文 mixed benchmark | `docs/reports/run_70.md` | `full_stack Precision=0.966 / Recall=0.480 / F1=0.641 / FPR=0.017` |
+
+这些结果可以压缩成三句话：
+
+- 英文直攻已经从早期盲区推进到“可用覆盖”
+- 英文间接注入已经达到高召回且 `FPR=0`
+- 中文当前的主要瓶颈已经不是规则底盘，而是 `harmful_operational_guidance_unstructured` 这类非结构化语义尾巴
+
+### 关键跑分结果
+
+如果你想在 README 里直接展示“系统现在到底打到了什么水平”，下面这三张表比单条截图更有说服力。
+
+#### 1. 英文通用 direct injection 基准
+
+数据集：`neuralchemy/Prompt-injection-dataset`  
+报告：`docs/reports/run_38.md`
+
+| 策略 | Precision | Recall | F1 | FPR |
+| --- | --- | --- | --- | --- |
+| `rules_only` | 0.996 | 0.440 | 0.611 | 0.003 |
+| `rules_classifier` | 0.997 | 0.531 | 0.693 | 0.003 |
+| `full_stack` | 0.997 | 0.531 | 0.693 | 0.003 |
+
+专项结果：
+
+- `English direct injection`: `Recall=0.761 / F1=0.864`
+- `PWNED variants`: `Recall=0.966 / F1=0.983`
+- `Payload rewrite`: `Recall=0.541 / F1=0.702`
+
+这组结果说明：英文直攻已经不再是“几乎看不见”的状态，而且不是靠抬高 `FPR` 换来的。
+
+#### 2. 英文间接注入 / RAG poisoning 基准
+
+数据集：`BIPIA`  
+报告：`docs/reports/run_41.md`
+
+| 策略 | Precision | Recall | F1 | FPR |
+| --- | --- | --- | --- | --- |
+| `rules_only` | 1.000 | 0.821 | 0.902 | 0.000 |
+| `rules_classifier` | 1.000 | 0.937 | 0.968 | 0.000 |
+| `full_stack` | 1.000 | 0.937 | 0.968 | 0.000 |
+| `context_hardened_v3` | 1.000 | 1.000 | 1.000 | 0.000 |
+
+专项结果：
+
+- `English indirect injection`: `Recall=1.000 / F1=1.000`（聚焦策略 `context_hardened_v3`）
+
+这组结果说明：英文间接注入这条线已经达到“高召回且 `FPR=0`”的状态，适合拿来展示 RAG 间接注入治理能力。
+
+#### 3. 中文 mixed benchmark 基准
+
+数据集：`Unified-Prompt-Guard + Strata-Sword` 重映射混合集  
+报告：`docs/reports/run_70.md`
+
+| 策略 | Precision | Recall | F1 | FPR |
+| --- | --- | --- | --- | --- |
+| `rules_only` | 0.957 | 0.367 | 0.530 | 0.017 |
+| `rules_classifier` | 0.966 | 0.480 | 0.641 | 0.017 |
+| `full_stack` | 0.966 | 0.480 | 0.641 | 0.017 |
+
+专项结果：
+
+- `Chinese unsafe_prompt`: `Recall=0.480 / F1=0.649`
+- `harmful_operational_guidance_unstructured`: `Recall=0.377 / F1=0.547`
+
+这组结果说明：中文线已经从“规则可见”推进到“规则 + 语义双层驱动”，但最大尾巴仍然是非结构化 harmful guidance。
+
+### 如何解读这些分数
+
+- `英文直攻` 的主问题已经不是规则底盘，而是剩余怪异变体的 residual 收尾。
+- `英文间接注入` 的主问题已经不是是否能检出，而是如何在不同策略下平衡 `review` 成本与场景适配。
+- `中文 mixed benchmark` 的重点不再是继续补 `jailbreak` 规则，而是继续提升中文语义模型对 `harmful_operational_guidance_unstructured` 的吞吐能力。
+
+### 当前中文检测路线
+
+当前中文线不是单纯靠关键词规则堆出来的，而是分成两层：
+
+1. 第一层：规则 + hint + gate  
+   负责显式的 `jailbreak`、`unsafe_prompt`、凭证套取、诈骗/钓鱼、绕过风控等模式识别。
+2. 第二层：中文二阶段语义分类器  
+   只在“高风险但证据不足”的 residual 场景下工作，重点吃：
+   - `classifier_high_score_but_low_evidence`
+   - `harmful_operational_guidance_unstructured`
+   - 中文 residual hard cases
+
+这条路线的目标不是替换规则，而是在不明显拉高 `FPR` 的前提下，把中文非结构化 harmful guidance 的召回继续往上抬。
+
 ## 设计亮点
 
 ### 1. 网关不是“传一个策略名就跑”
@@ -390,6 +486,7 @@ curl -X POST http://127.0.0.1:8000/ops/evaluations \
 ### 2. 规则、分类器、输出侧过滤是分层组合的
 
 规则引擎负责显式模式命中，分类器补充模糊风险，输出侧过滤专门覆盖模型响应阶段。  
+在中文 residual 场景下，系统还会启用二阶段语义分类器，对“规则证据不足但可执行性语义很强”的样本做额外判定。  
 系统里预置了 `rules_only`、`rules_classifier`、`full_stack` 以及几组 `v2` 策略，评测阶段还能做阈值扫描和版本对比，而不是只看单个结果。
 
 ### 3. 存储链路考虑了隐私和审计
@@ -411,9 +508,39 @@ curl -X POST http://127.0.0.1:8000/ops/evaluations \
 
 这让仓库既能单机跑通，也保留了向更真实部署方式迁移的空间。
 
+## 第二轮增强进展
+
+当前仓库已经不只是“有规则、有 API”的初版 demo，而是沿着真实安全运营路径继续往前推进了一层：
+
+- 从单体路由拆成 `gateway / ops / admin`
+- 引入 `Tenant / Application / PolicyBinding / TaskRun / ReviewTask / AuditLog` 等实体
+- 增加 JWT + RBAC + 租户隔离
+- 接入公开 benchmark，并按中英分开评测
+- 针对英文直攻、英文间接注入和中文 `unsafe_prompt` 分别做了多轮 benchmark 驱动优化
+- 在中文线上引入二阶段语义分类器，专门吃 residual hard cases
+
+如果你想看完整演进过程，可以直接看：
+
+- [docs/本次迭代修改全过程记录.md](docs/%E6%9C%AC%E6%AC%A1%E8%BF%AD%E4%BB%A3%E4%BF%AE%E6%94%B9%E5%85%A8%E8%BF%87%E7%A8%8B%E8%AE%B0%E5%BD%95.md)
+
+## 设计取舍
+
+- 没有一开始就上更重的深度模型，而是先用“规则 + 基线分类器 + 评测闭环”把工程底盘搭稳
+- 在中文 residual 上才追加二阶段语义分类器，而不是直接把所有请求都交给更重模型
+- 保留 `SQLite + database queue` 方便本地演示，同时提供 `PostgreSQL + Redis + Arq` 迁移路径
+- 公开 benchmark 样本以独立 `tenant/application` 导入，不和默认演示样本混用
+
+## 局限与后续
+
+- 中文二阶段语义模型当前仍是轻量实现，最难的 `other_unstructured` 残桶还有提升空间
+- 当前报告和案例默认仍落地到本地文件，后续更适合迁到对象存储或数据库
+- Streamlit 更适合内网演示和调试，正式管理台仍更适合 React/Vue
+- 中文样本虽然已经开始做 residual 驱动数据工程，但离“千级 hard case 数据闭环”还有距离
+
 ## todo
 
-- [ ] 把分类器从基线 TF-IDF 模型升级到更稳定的中文轻量模型，并补上更严格的离线评估
+- [ ] 把中文二阶段语义分类器继续升级成更强的小型语义模型，并补上更严格的离线评估
+- [ ] 继续扩中文 residual hard cases，把 `harmful_operational_guidance_unstructured` 做成系统性数据工程
 - [ ] 把策略配置继续细化到不同业务场景，例如知识库问答、办公助手、代码助手分别维护阈值
 - [ ] 完善 `PostgreSQL + Redis` 路径下的部署说明和初始化脚本，减少环境切换成本
 - [ ] 继续扩充边界样本和迷惑性白样本，提升误报分析和案例中心的质量
